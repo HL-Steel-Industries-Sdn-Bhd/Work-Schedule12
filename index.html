@@ -168,7 +168,7 @@
     todayDate.innerText = '日期：' + today.toLocaleDateString('zh-CN');
 
     const hours = ['8:30','9:30','10:30','11:30','12:00','1:00','2:00','3:00','4:00','5:00','5:30','6:00','7:00','8:00','9:00','10:00'];
-    const breakCols = [4, 10];
+    const breakCols = [4, 10]; // 12:00 & 5:30 休息栏
 
     const emptyHeader = document.createElement('div');
     emptyHeader.className = 'header';
@@ -329,111 +329,72 @@
       return Array.from(allCells).some(cell => cell.matches(':hover') || cell.querySelector(':hover'));
     }
 
-    function fitFontSize(el, rawWidth, height, spanCount) {
-      const style = window.getComputedStyle(el);
-      const padLeft = parseFloat(style.paddingLeft) || 0;
-      const padRight = parseFloat(style.paddingRight) || 0;
-      const padTop = parseFloat(style.paddingTop) || 0;
-      const padBottom = parseFloat(style.paddingBottom) || 0;
-      const usableWidth = Math.max(8, rawWidth - padLeft - padRight - 6);
-      const usableHeight = Math.max(8, height - padTop - padBottom - 4);
+    // ✅ 新增逻辑：跳过 break 栏位
+    function highlightCells(startCell, endCell) {
+      clearHighlights();
+      if (!startCell || !endCell) return;
+      const row = startCell.dataset.row;
+      if (row !== endCell.dataset.row) return;
+      let start = parseInt(startCell.dataset.col);
+      let end = parseInt(endCell.dataset.col);
+      if (end < start) [start, end] = [end, start];
 
-      let minSize;
-      if (spanCount === 1) {
-        minSize = 12;
-      } else if (spanCount === 2) {
-        minSize = 16;
-      } else if (spanCount === 3) {
-        minSize = 18;
-      } else if (spanCount === 4) {
-        minSize = 22;
-      } else {
-        minSize = 26;
-      }
-
-      if (spanCount >= 3) {
-        let fontSize = Math.max(minSize, 16 + spanCount * 2);
-        let safety = 0;
-        while (fontSize >= minSize && safety < 120) {
-          safety++;
-          el.style.fontSize = fontSize + 'px';
-          const sh = el.scrollHeight;
-          const sw = el.scrollWidth;
-          if (sh <= usableHeight + 1 && sw <= usableWidth + 4) break;
-          fontSize -= 1;
+      const validCells = [];
+      for (let c = start; c <= end; c++) {
+        if (breakCols.includes(c)) continue; // 跳过休息栏
+        const cell = document.querySelector(`.cell[data-row="${row}"][data-col="${c}"]`);
+        if (cell) {
+          cell.classList.add('highlight');
+          validCells.push(cell);
         }
-        if (fontSize < minSize) fontSize = minSize;
-        el.style.fontSize = fontSize + 'px';
-        el.style.width = rawWidth + 'px';
-        el.style.height = height + 'px';
-        el.style.display = 'flex';
-        el.style.alignItems = 'center';
-        el.style.justifyContent = 'center';
-        return fontSize;
       }
-
-      let startSize = Math.min(Math.floor(usableHeight), 72 + spanCount * 6);
-      if (startSize < minSize) startSize = minSize;
-      let fontSize = startSize;
-      let safety = 0;
-      while (fontSize >= minSize && safety < 200) {
-        safety++;
-        el.style.fontSize = fontSize + 'px';
-        const sh = el.scrollHeight;
-        const sw = el.scrollWidth;
-        if (sh <= usableHeight + 1 && sw <= usableWidth + 4) break;
-        fontSize -= 1;
-      }
-      if (fontSize < minSize) fontSize = minSize;
-
-      if (spanCount === 2) {
-        let boosted = Math.ceil(fontSize * 1.3);
-        boosted = Math.min(boosted, Math.max(48, Math.floor(usableHeight)));
-        el.style.fontSize = boosted + 'px';
-        let sh = el.scrollHeight;
-        let sw = el.scrollWidth;
-        let safety2 = 0;
-        while ((sh > usableHeight + 1 || sw > usableWidth + 4) && boosted > minSize && safety2 < 120) {
-          safety2++;
-          boosted -= 1;
-          el.style.fontSize = boosted + 'px';
-          sh = el.scrollHeight;
-          sw = el.scrollWidth;
-        }
-        fontSize = boosted;
-      }
-
-      el.style.fontSize = fontSize + 'px';
-      el.style.lineHeight = '1.05';
-      el.style.width = rawWidth + 'px';
-      el.style.height = height + 'px';
-      el.style.display = 'flex';
-      el.style.alignItems = 'center';
-      el.style.justifyContent = 'center';
-      return fontSize;
+      dragInfo.cells = validCells;
     }
 
+    function clearHighlights() {
+      document.querySelectorAll('.cell.highlight').forEach(cell => cell.classList.remove('highlight'));
+    }
+
+    // ✅ 修正 createMergedProject()：排除 break 栏不合并
     function createMergedProject(dragInfo) {
+      if (!dragInfo || dragInfo.cells.length === 0) return;
+
+      // 排除 break 栏
+      dragInfo.cells = dragInfo.cells.filter(c => !breakCols.includes(parseInt(c.dataset.col)));
       if (dragInfo.cells.length === 0) return;
-      dragInfo.cells.sort((a, b) => parseInt(a.dataset.col) - parseInt(b.dataset.col));
+
+      dragInfo.cells.sort((a,b)=>parseInt(a.dataset.col)-parseInt(b.dataset.col));
       const row = dragInfo.cells[0].dataset.row;
       const startCol = parseInt(dragInfo.cells[0].dataset.col);
-      const endCol = parseInt(dragInfo.cells[dragInfo.cells.length - 1].dataset.col);
+      const endCol = parseInt(dragInfo.cells[dragInfo.cells.length-1].dataset.col);
 
-      dragInfo.cells.forEach(cell => {
-        const existing = cell.querySelector('.assigned-project');
-        if (existing) existing.remove();
-        cell.classList.remove('occupied');
-      });
-
-      document.querySelectorAll('.assigned-project.merged').forEach(el => {
-        const erow = el.dataset.row;
-        const est = parseInt(el.dataset.startCol);
-        const eet = parseInt(el.dataset.endCol);
-        if (String(erow) === String(row) && !(eet < startCol || est > endCol)) {
-          el.remove();
+      // 如果中间穿过 break 栏，则分段生成（不跨 break）
+      let segment = [];
+      let segments = [];
+      for (let c=startCol; c<=endCol; c++) {
+        if (breakCols.includes(c)) {
+          if (segment.length>0) { segments.push(segment); segment=[]; }
+        } else {
+          const cell = document.querySelector(`.cell[data-row="${row}"][data-col="${c}"]`);
+          if (cell) segment.push(cell);
         }
+      }
+      if (segment.length>0) segments.push(segment);
+
+      segments.forEach(seg=>{
+        const tempInfo={...dragInfo, cells:seg};
+        makeOneMergedBlock(tempInfo);
       });
+    }
+
+    function makeOneMergedBlock(dragInfo) {
+      if (dragInfo.cells.length===0) return;
+      dragInfo.cells.sort((a,b)=>parseInt(a.dataset.col)-parseInt(b.dataset.col));
+      const row = dragInfo.cells[0].dataset.row;
+      const startCol = parseInt(dragInfo.cells[0].dataset.col);
+      const endCol = parseInt(dragInfo.cells[dragInfo.cells.length-1].dataset.col);
+
+      dragInfo.cells.forEach(c=>c.classList.add('occupied'));
 
       const merged = document.createElement('div');
       merged.className = 'assigned-project merged';
@@ -442,15 +403,13 @@
       merged.dataset.startCol = startCol;
       merged.dataset.endCol = endCol;
 
-      const spanCount = endCol - startCol + 1;
-
       const codeMatch = dragInfo.projectName.match(/\((\d+)-/);
       if (codeMatch && projectCodeColorMap[codeMatch[1]]) {
         merged.style.background = projectCodeColorMap[codeMatch[1]];
       }
 
       const first = dragInfo.cells[0];
-      const last = dragInfo.cells[dragInfo.cells.length - 1];
+      const last = dragInfo.cells[dragInfo.cells.length-1];
       const firstRect = first.getBoundingClientRect();
       const lastRect = last.getBoundingClientRect();
       const schedRect = schedule.getBoundingClientRect();
@@ -464,49 +423,9 @@
       merged.style.height = height + 'px';
 
       schedule.appendChild(merged);
-      try {
-        fitFontSize(merged, rawWidth, height, spanCount);
-      } catch (e) {}
-
-      merged.addEventListener('click', e => {
-        e.stopPropagation();
-        removeMergedProject(merged);
-      });
-
-      dragInfo.cells.forEach(c => c.classList.add('occupied'));
-    }
-
-    function removeMergedProject(el) {
-      if (!el) return;
-      const row = el.dataset.row;
-      const start = parseInt(el.dataset.startCol);
-      const end = parseInt(el.dataset.endCol);
-      for (let c = start; c <= end; c++) {
-        const cell = document.querySelector(`.cell[data-row="${row}"][data-col="${c}"]`);
-        if (cell) cell.classList.remove('occupied');
-      }
-      el.remove();
-    }
-
-    function highlightCells(startCell, endCell) {
-      clearHighlights();
-      if (!startCell || !endCell) return;
-      const row = startCell.dataset.row;
-      if (row !== endCell.dataset.row) return;
-      let start = parseInt(startCell.dataset.col);
-      let end = parseInt(endCell.dataset.col);
-      if (end < start) [start, end] = [end, start];
-      for (let c = start; c <= end; c++) {
-        const cell = document.querySelector(`.cell[data-row="${row}"][data-col="${c}"]`);
-        if (cell && !cell.classList.contains('break')) cell.classList.add('highlight');
-      }
-      dragInfo.cells = Array.from(document.querySelectorAll('.cell.highlight'));
-    }
-
-    function clearHighlights() {
-      document.querySelectorAll('.cell.highlight').forEach(cell => cell.classList.remove('highlight'));
     }
   });
   </script>
 </body>
 </html>
+
