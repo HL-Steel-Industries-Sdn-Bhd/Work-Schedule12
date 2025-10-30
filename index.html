@@ -168,7 +168,7 @@
     todayDate.innerText = '日期：' + today.toLocaleDateString('zh-CN');
 
     const hours = ['8:30','9:30','10:30','11:30','12:00','1:00','2:00','3:00','4:00','5:00','5:30','6:00','7:00','8:00','9:00','10:00'];
-    const breakCols = [4, 10]; // 12:00 & 5:30 休息栏
+    const breakCols = [4, 10];
 
     const emptyHeader = document.createElement('div');
     emptyHeader.className = 'header';
@@ -329,7 +329,6 @@
       return Array.from(allCells).some(cell => cell.matches(':hover') || cell.querySelector(':hover'));
     }
 
-    // ✅ 新增逻辑：跳过 break 栏位
     function highlightCells(startCell, endCell) {
       clearHighlights();
       if (!startCell || !endCell) return;
@@ -341,7 +340,7 @@
 
       const validCells = [];
       for (let c = start; c <= end; c++) {
-        if (breakCols.includes(c)) continue; // 跳过休息栏
+        if (breakCols.includes(c)) continue;
         const cell = document.querySelector(`.cell[data-row="${row}"][data-col="${c}"]`);
         if (cell) {
           cell.classList.add('highlight');
@@ -355,11 +354,8 @@
       document.querySelectorAll('.cell.highlight').forEach(cell => cell.classList.remove('highlight'));
     }
 
-    // ✅ 修正 createMergedProject()：排除 break 栏不合并
     function createMergedProject(dragInfo) {
       if (!dragInfo || dragInfo.cells.length === 0) return;
-
-      // 排除 break 栏
       dragInfo.cells = dragInfo.cells.filter(c => !breakCols.includes(parseInt(c.dataset.col)));
       if (dragInfo.cells.length === 0) return;
 
@@ -368,7 +364,6 @@
       const startCol = parseInt(dragInfo.cells[0].dataset.col);
       const endCol = parseInt(dragInfo.cells[dragInfo.cells.length-1].dataset.col);
 
-      // 如果中间穿过 break 栏，则分段生成（不跨 break）
       let segment = [];
       let segments = [];
       for (let c=startCol; c<=endCol; c++) {
@@ -421,6 +416,19 @@
       merged.style.width = rawWidth + 'px';
       merged.style.top = top + 'px';
       merged.style.height = height + 'px';
+
+      // ✅ 新增：点击删除功能
+      merged.addEventListener('click', function(e) {
+        e.stopPropagation();
+        const row = this.dataset.row;
+        const start = parseInt(this.dataset.startCol);
+        const end = parseInt(this.dataset.endCol);
+        for (let c = start; c <= end; c++) {
+          const cell = document.querySelector(`.cell[data-row="${row}"][data-col="${c}"]`);
+          if (cell) cell.classList.remove('occupied');
+        }
+        this.remove();
+      });
 
       schedule.appendChild(merged);
     }
